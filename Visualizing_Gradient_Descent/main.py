@@ -1,17 +1,12 @@
+# -----------------------------
+# ✅ main.py
+# -----------------------------
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from gd_engine import Function1D, GradientDescent
-
-# --- Constants ---
-DEFAULT_LR = 0.1
-DEFAULT_X = 5.0
-DEFAULT_STEPS = 20
-
-# --- Streamlit Page Setup ---
-st.set_page_config(page_title="Gradient Descent Visualizer", layout="centered")
-st.title("📉 Visualizing Gradient Descent in Action")
-st.markdown("This app demonstrates how **Gradient Descent** works on the function **f(x) = x²**.")
+from functions import FUNCTIONS
 
 # --- Helper: Two-way sync input + slider ---
 def two_way_input(
@@ -22,20 +17,6 @@ def two_way_input(
     key_prefix: str,
     default: float
 ) -> float:
-    """
-    Creates a synchronized number_input and slider that update each other.
-
-    Args:
-        label (str): Display label for both widgets.
-        slider_range (tuple): (min, max) range.
-        step (float): Step size.
-        format_str (str): Format string (%.3f, etc.).
-        key_prefix (str): Unique key prefix (e.g., 'lr', 'x0').
-        default (float): Default value.
-
-    Returns:
-        float: The synchronized value.
-    """
     min_val, max_val = slider_range
     state_key = f"{key_prefix}_val"
     slider_key = f"{key_prefix}_slider"
@@ -44,26 +25,36 @@ def two_way_input(
     if state_key not in st.session_state:
         st.session_state[state_key] = default
 
-    # Number Input
     input_val = st.sidebar.number_input(
         f"Enter {label}", min_value=min_val, max_value=max_val,
         value=st.session_state[state_key], step=step, format=format_str,
         key=input_key
     )
 
-    # Slider
     slider_val = st.sidebar.slider(
         f"Adjust {label}", min_value=min_val, max_value=max_val,
         value=st.session_state[state_key], step=step, key=slider_key
     )
 
-    # Sync whichever changed
     if slider_val != st.session_state[state_key]:
         st.session_state[state_key] = slider_val
     elif input_val != st.session_state[state_key]:
         st.session_state[state_key] = input_val
 
     return st.session_state[state_key]
+
+# --- Streamlit Config ---
+st.set_page_config(page_title="Gradient Descent Visualizer", layout="centered")
+st.title("📉 Visualizing Gradient Descent in Action")
+
+# --- Function Selection ---
+function_names = list(FUNCTIONS.keys())
+selected_name = st.sidebar.selectbox("📐 Select Function", function_names)
+selected_function = FUNCTIONS[selected_name]
+
+DEFAULT_LR = selected_function.recommended_lr
+DEFAULT_X = 5.0
+DEFAULT_STEPS = 20
 
 # --- Reset Button ---
 if st.sidebar.button("🔁 Reset to Default"):
@@ -74,55 +65,61 @@ if st.sidebar.button("🔁 Reset to Default"):
 
 # --- Sidebar Inputs ---
 st.sidebar.header("🔧 Parameters")
-st.sidebar.info("Use either the slider or the input box. Both stay in sync!")
+st.sidebar.markdown(selected_function.formula_latex)
 
-st.sidebar.markdown("### Learning Rate (α)")
+if not selected_function.has_minimum:
+    st.sidebar.warning("⚠️ This function has no global minimum — gradient descent may diverge.")
+
 learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "lr", DEFAULT_LR)
-
-st.sidebar.markdown("### Initial Value (x₀)")
 initial_x = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "x0", DEFAULT_X)
-
-st.sidebar.markdown("### Steps")
 steps = int(two_way_input("Steps", (1, 100), 1, "%d", "steps", DEFAULT_STEPS))
 
-# --- Function Definition ---
-def f_x_squared(x: float) -> float:
-    return x ** 2
-
-def df_x_squared(x: float) -> float:
-    return 2 * x
-
-function = Function1D(func=f_x_squared, derivative=df_x_squared)
+# --- Function Class ---
+function = Function1D(
+    func=selected_function.evaluate,
+    derivative=selected_function.derivative
+)
 
 # --- Run Gradient Descent ---
 optimizer = GradientDescent(func=function, start_x=initial_x, lr=learning_rate, steps=steps)
 x_vals = optimizer.run()
 y_vals = [function.evaluate(x) for x in x_vals]
 
-# --- Plot Function and Descent Path ---
-fig1, ax1 = plt.subplots()
-x_range = np.linspace(-10, 10, 400)
-ax1.plot(x_range, function.evaluate(x_range), label="$f(x) = x^2$", color='blue')
-ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
-ax1.set_xlabel("x")
-ax1.set_ylabel("f(x)")
-ax1.set_title("Gradient Descent on $f(x) = x^2$")
-ax1.legend()
-ax1.grid(True)
-fig1.tight_layout()
-st.pyplot(fig1)
+# --- Main Display ---
+st.markdown(f"### 📊 Selected Function: {selected_function.formula_latex}")
 
-# --- Plot Loss vs Steps ---
-fig2, ax2 = plt.subplots()
-ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
-ax2.set_xlabel("Step")
-ax2.set_ylabel("f(x)")
-ax2.set_title("Loss vs Steps")
-ax2.grid(True)
-fig2.tight_layout()
-st.pyplot(fig2)
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("#### 📉 Descent Path")
+    fig1, ax1 = plt.subplots()
+    x_range = np.linspace(-10, 10, 400)
+    ax1.plot(x_range, function.evaluate(x_range), label=selected_function.formula_latex, color='blue')
+    ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
 
-# --- Results Output ---
+    # Stationary points
+    for pt in getattr(selected_function, "stationary_points", []):
+        ax1.axvline(x=pt, color='gray', linestyle='--', alpha=0.3)
+
+    ax1.set_xlabel("x")
+    ax1.set_ylabel("f(x)")
+    ax1.set_title(f"Gradient Descent on {selected_function.name}")
+    ax1.legend()
+    ax1.grid(True)
+    fig1.tight_layout()
+    st.pyplot(fig1)
+
+with col2:
+    st.markdown("#### 📈 Loss vs Steps")
+    fig2, ax2 = plt.subplots()
+    ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
+    ax2.set_xlabel("Step")
+    ax2.set_ylabel("f(x)")
+    ax2.set_title("Loss vs Steps")
+    ax2.grid(True)
+    fig2.tight_layout()
+    st.pyplot(fig2)
+
+# --- Final Output ---
 st.subheader("📌 Final Results")
 if x_vals:
     st.markdown(f"**Final x:** {x_vals[-1]:.6f}")
@@ -137,5 +134,13 @@ if x_vals:
             st.warning("⚠️ Gradient still large — consider tuning learning rate or steps.")
     except Exception as e:
         st.error(f"Error during convergence check: {e}")
+
+    if st.checkbox("🧾 Show Step-by-step Table"):
+        data = pd.DataFrame({
+            "Step": range(len(x_vals)),
+            "x": x_vals,
+            "f(x)": y_vals
+        })
+        st.dataframe(data)
 else:
     st.error("Gradient Descent failed. Please check your parameters.")

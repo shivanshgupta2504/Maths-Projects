@@ -1,56 +1,39 @@
+# -----------------------------
+# ✅ gd_engine.py
+# -----------------------------
 import numpy as np
-from typing import Callable, List
+from typing import Callable
 
 class Function1D:
-    """
-    Represents a 1D function and its derivative.
-    """
-
-    def __init__(self, func: Callable[[float], float], derivative: Callable[[float], float]) -> None:
+    def __init__(self, func: Callable, derivative: Callable) -> None:
         self.func = func
-        self.derivative = derivative
+        self.derivative_func = derivative
 
-    def evaluate(self, x: float) -> float:
-        """
-        Evaluate the function at x.
-        """
+    def evaluate(self, x: float | np.ndarray) -> float | np.ndarray:
         return self.func(x)
 
-    def gradient(self, x: float) -> float:
-        """
-        Compute the derivative at x.
-        """
-        return self.derivative(x)
+    def gradient(self, x: float | np.ndarray) -> float | np.ndarray:
+        return self.derivative_func(x)
 
 
 class GradientDescent:
-    """
-    Performs gradient descent on a given 1D function.
-    """
-
     def __init__(self, func: Function1D, start_x: float, lr: float, steps: int) -> None:
         self.func = func
         self.start_x = start_x
         self.lr = lr
         self.steps = steps
-        self.history: List[float] = []
+        self.history = []
 
-    def run(self) -> List[float]:
-        """
-        Run the gradient descent algorithm.
-
-        Returns:
-            List of x values visited during descent.
-        """
+    def run(self) -> list[float]:
         try:
             x = self.start_x
             self.history = [x]
-
             for _ in range(self.steps):
                 grad = self.func.gradient(x)
+                grad = np.clip(grad, -1e5, 1e5)  # ⛑️ prevent overflow
                 x -= self.lr * grad
+                x = np.clip(x, -1e8, 1e8)        # ⛑️ prevent runaway
                 self.history.append(x)
-
             return self.history
         except Exception as e:
             print(f"Error during gradient descent: {e}")
