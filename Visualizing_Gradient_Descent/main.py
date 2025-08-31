@@ -5,8 +5,10 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from gd_engine import Function1D, GradientDescent
+from gd_engine import Function1D, GradientDescent, GradientDescent2D
 from functions import FUNCTIONS
+from mpl_toolkits.mplot3d import Axes3D
+from functions_2d import FUNCTIONS_2D, Function2D
 
 # --- Helper: Two-way sync input + slider ---
 def two_way_input(
@@ -43,104 +45,205 @@ def two_way_input(
 
     return st.session_state[state_key]
 
+def plot_3d_descent(func, path: list[tuple[float, float]]) -> plt.Figure:
+    """
+    Plot a 3D surface of the function and the descent path.
+    """
+    fig = plt.figure(figsize=(6, 5))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Surface grid
+    X = np.linspace(-5, 5, 100)
+    Y = np.linspace(-5, 5, 100)
+    X, Y = np.meshgrid(X, Y)
+    Z = func.evaluate(X, Y)
+
+    # Plot surface
+    ax.plot_surface(X, Y, Z, cmap="viridis", alpha=0.8, edgecolor='none')
+
+    # Plot Path
+    xs, ys = zip(*path)
+    zs = [func.evaluate(x, y) for x, y in path]
+    ax.plot(xs, ys, zs, color='red', marker='o', label='Descent Path')
+
+    # Style
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel("f(x, y)")
+    if func.name == "Saddle":
+        ax.set_zlim(-50, 50)  # Prevents huge distortion
+    ax.set_title('3D Gradient Descent Path')
+    ax.view_init(elev=35, azim=45)
+    ax.legend()
+
+    return fig
+
 # --- Streamlit Config ---
 st.set_page_config(page_title="Gradient Descent Visualizer", layout="centered")
 st.title("📉 Visualizing Gradient Descent in Action")
 
-# --- Function Selection ---
-function_names = list(FUNCTIONS.keys())
-selected_name = st.sidebar.selectbox("📐 Select Function", function_names)
-selected_function = FUNCTIONS[selected_name]
+# --- Mode Switch (1D vs 2D) ---
+mode = st.radio("Select Visualization Mode:", ["1D", "2D"], horizontal=True)
 
-DEFAULT_LR = selected_function.recommended_lr
-DEFAULT_X = 5.0
-DEFAULT_STEPS = 20
+# -----------------------------
+# 1D GRADIENT DESCENT BLOCK
+# -----------------------------
+if mode == "1D":
+    st.subheader("📐 1D Gradient Descent")
+    # --- Function Selection ---
+    function_names = list(FUNCTIONS.keys())
+    selected_name = st.sidebar.selectbox("📐 Select 1D Function", function_names)
+    selected_function = FUNCTIONS[selected_name]
 
-# --- Reset Button ---
-if st.sidebar.button("🔁 Reset to Default"):
-    st.session_state.lr_val = DEFAULT_LR
-    st.session_state.x0_val = DEFAULT_X
-    st.session_state.steps_val = DEFAULT_STEPS
-    st.rerun()
+    DEFAULT_LR = selected_function.recommended_lr
+    DEFAULT_X = 5.0
+    DEFAULT_STEPS = 20
 
-# --- Sidebar Inputs ---
-st.sidebar.header("🔧 Parameters")
-st.sidebar.markdown(selected_function.formula_latex)
+    # --- Reset Button ---
+    if st.sidebar.button("🔁 Reset to Default"):
+        st.session_state.lr_val = DEFAULT_LR
+        st.session_state.x0_val = DEFAULT_X
+        st.session_state.steps_val = DEFAULT_STEPS
+        st.rerun()
 
-if not selected_function.has_minimum:
-    st.sidebar.warning("⚠️ This function has no global minimum — gradient descent may diverge.")
+    # --- Sidebar Inputs ---
+    st.sidebar.header("🔧 Parameters")
+    st.sidebar.markdown(selected_function.formula_latex)
 
-learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "lr", DEFAULT_LR)
-initial_x = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "x0", DEFAULT_X)
-steps = int(two_way_input("Steps", (1, 100), 1, "%d", "steps", DEFAULT_STEPS))
+    if not selected_function.has_minimum:
+        st.sidebar.warning("⚠️ This function has no global minimum — gradient descent may diverge.")
 
-# --- Function Class ---
-function = Function1D(
-    func=selected_function.evaluate,
-    derivative=selected_function.derivative
-)
+    learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "lr", DEFAULT_LR)
+    initial_x = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "x0", DEFAULT_X)
+    steps = int(two_way_input("Steps", (1, 100), 1, "%d", "steps", DEFAULT_STEPS))
 
-# --- Run Gradient Descent ---
-optimizer = GradientDescent(func=function, start_x=initial_x, lr=learning_rate, steps=steps)
-x_vals = optimizer.run()
-y_vals = [function.evaluate(x) for x in x_vals]
+    # --- Function Class ---
+    function = Function1D(
+        func=selected_function.evaluate,
+        derivative=selected_function.derivative
+    )
 
-# --- Main Display ---
-st.markdown(f"### 📊 Selected Function: {selected_function.formula_latex}")
+    # --- Run Gradient Descent ---
+    optimizer = GradientDescent(func=function, start_x=initial_x, lr=learning_rate, steps=steps)
+    x_vals = optimizer.run()
+    y_vals = [function.evaluate(x) for x in x_vals]
 
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("#### 📉 Descent Path")
-    fig1, ax1 = plt.subplots()
-    x_range = np.linspace(-10, 10, 400)
-    ax1.plot(x_range, function.evaluate(x_range), label=selected_function.formula_latex, color='blue')
-    ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
+    # --- 1D Display ---
+    st.markdown(f"### 📊 Selected Function: {selected_function.formula_latex}")
 
-    # Stationary points
-    for pt in getattr(selected_function, "stationary_points", []):
-        ax1.axvline(x=pt, color='gray', linestyle='--', alpha=0.3)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 📉 Descent Path")
+        fig1, ax1 = plt.subplots()
+        x_range = np.linspace(-10, 10, 400)
+        ax1.plot(x_range, function.evaluate(x_range), label=selected_function.formula_latex, color='blue')
+        ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
 
-    ax1.set_xlabel("x")
-    ax1.set_ylabel("f(x)")
-    ax1.set_title(f"Gradient Descent on {selected_function.name}")
-    ax1.legend()
-    ax1.grid(True)
-    fig1.tight_layout()
-    st.pyplot(fig1)
+        # Stationary points
+        for pt in getattr(selected_function, "stationary_points", []):
+            ax1.axvline(x=pt, color='gray', linestyle='--', alpha=0.3)
 
-with col2:
-    st.markdown("#### 📈 Loss vs Steps")
-    fig2, ax2 = plt.subplots()
-    ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
-    ax2.set_xlabel("Step")
-    ax2.set_ylabel("f(x)")
-    ax2.set_title("Loss vs Steps")
-    ax2.grid(True)
-    fig2.tight_layout()
-    st.pyplot(fig2)
+        ax1.set_xlabel("x")
+        ax1.set_ylabel("f(x)")
+        ax1.set_title(f"Gradient Descent on {selected_function.name}")
+        ax1.legend()
+        ax1.grid(True)
+        fig1.tight_layout()
+        st.pyplot(fig1)
 
-# --- Final Output ---
-st.subheader("📌 Final Results")
-if x_vals:
-    st.markdown(f"**Final x:** {x_vals[-1]:.6f}")
-    st.markdown(f"**Final f(x):** {y_vals[-1]:.6f}")
-    st.markdown(f"**Initial Loss:** {y_vals[0]:.6f}")
+    with col2:
+        st.markdown("#### 📈 Loss vs Steps")
+        fig2, ax2 = plt.subplots()
+        ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
+        ax2.set_xlabel("Step")
+        ax2.set_ylabel("f(x)")
+        ax2.set_title("Loss vs Steps")
+        ax2.grid(True)
+        fig2.tight_layout()
+        st.pyplot(fig2)
 
-    try:
-        grad = function.gradient(x_vals[-1])
-        if abs(grad) < 1e-3:
+    # --- Final Output ---
+    st.subheader("📌 Final Results")
+    if x_vals:
+        st.markdown(f"**Final x:** {x_vals[-1]:.6f}")
+        st.markdown(f"**Final f(x):** {y_vals[-1]:.6f}")
+        st.markdown(f"**Initial Loss:** {y_vals[0]:.6f}")
+
+        try:
+            grad = function.gradient(x_vals[-1])
+            if abs(grad) < 1e-3:
+                st.success("✅ Gradient is small — likely converged.")
+            else:
+                st.warning("⚠️ Gradient still large — consider tuning learning rate or steps.")
+        except Exception as e:
+            st.error(f"Error during convergence check: {e}")
+
+        if st.checkbox("🧾 Show Step-by-step Table"):
+            data = pd.DataFrame({
+                "Step": range(len(x_vals)),
+                "x": x_vals,
+                "f(x)": y_vals
+            })
+            st.dataframe(data)
+    else:
+        st.error("Gradient Descent failed. Please check your parameters.")
+# -----------------------------
+# 2D GRADIENT DESCENT BLOCK
+# -----------------------------
+else:
+    st.subheader("🌄 2D Gradient Descent Visualization")
+
+    function_names_2d = list(FUNCTIONS_2D.keys())
+    selected_name = st.selectbox("📐 Select 2D Function", function_names_2d)
+    selected_function = FUNCTIONS_2D[selected_name]
+
+    DEFAULT_LR = selected_function.recommended_lr
+    DEFAULT_X = 3.0
+    DEFAULT_Y = 3.0
+    DEFAULT_STEPS = 30
+
+    if st.sidebar.button("🔁 Reset to Default"):
+        st.session_state['2d_lr_val'] = DEFAULT_LR
+        st.session_state['2d_x0_val'] = DEFAULT_X
+        st.session_state['2d_y0_val'] = DEFAULT_Y
+        st.session_state['2d_steps_val'] = DEFAULT_STEPS
+        st.rerun()
+
+    st.sidebar.markdown(selected_function.formula_latex)
+    if not selected_function.has_minimum:
+        st.sidebar.warning("⚠️ No global minimum — may diverge.")
+
+    learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "2d_lr", DEFAULT_LR)
+    x0 = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "2d_x0", DEFAULT_X)
+    y0 = two_way_input("y₀", (-10.0, 10.0), 0.1, "%.1f", "2d_y0", DEFAULT_Y)
+    steps = int(two_way_input("Steps", (1, 100), 1, "%d", "2d_steps", DEFAULT_STEPS))
+
+    optimizer = GradientDescent2D(func=selected_function, start=(x0, y0), lr=learning_rate, steps=steps)
+    path = optimizer.run()
+
+    st.markdown(f"**Function:** {selected_function.formula_latex}")
+    fig3d = plot_3d_descent(selected_function, path)
+    st.pyplot(fig3d)
+
+    st.subheader("📌 Final Results")
+    if path:
+        final_x, final_y = path[-1]
+        final_loss = selected_function.evaluate(final_x, final_y)
+        st.markdown(f"**Final (x, y):** ({final_x:.6f}, {final_y:.6f})")
+        st.markdown(f"**Final f(x, y):** {final_loss:.6f}")
+        st.markdown(f"**Initial Loss:** {selected_function.evaluate(x0, y0):.6f}")
+        dx, dy = selected_function.gradient(final_x, final_y)
+        if abs(dx) < 1e-3 and abs(dy) < 1e-3:
             st.success("✅ Gradient is small — likely converged.")
         else:
-            st.warning("⚠️ Gradient still large — consider tuning learning rate or steps.")
-    except Exception as e:
-        st.error(f"Error during convergence check: {e}")
-
-    if st.checkbox("🧾 Show Step-by-step Table"):
-        data = pd.DataFrame({
-            "Step": range(len(x_vals)),
-            "x": x_vals,
-            "f(x)": y_vals
-        })
-        st.dataframe(data)
-else:
-    st.error("Gradient Descent failed. Please check your parameters.")
+            st.warning("⚠️ Gradient still large — tune LR or steps.")
+        if st.checkbox("🧾 Show Step Table"):
+            df = pd.DataFrame({
+                "Step": range(len(path)),
+                "x": [p[0] for p in path],
+                "y": [p[1] for p in path],
+                "f(x,y)": [selected_function.evaluate(p[0], p[1]) for p in path]
+            })
+            st.dataframe(df)
+    else:
+        st.error("❌ Gradient Descent failed. Adjust parameters.")
