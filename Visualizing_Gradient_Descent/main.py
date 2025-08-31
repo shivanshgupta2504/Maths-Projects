@@ -8,7 +8,10 @@ import pandas as pd
 from gd_engine import Function1D, GradientDescent, GradientDescent2D
 from functions import FUNCTIONS
 from mpl_toolkits.mplot3d import Axes3D
-from functions_2d import FUNCTIONS_2D, Function2D
+from functions_2d import FUNCTIONS_2D
+from matplotlib.animation import FuncAnimation
+import io
+import tempfile
 
 # --- Helper: Two-way sync input + slider ---
 def two_way_input(
@@ -78,6 +81,48 @@ def plot_3d_descent(func, path: list[tuple[float, float]]) -> plt.Figure:
 
     return fig
 
+# --- Animation Function for 1D Functions ---
+def plot_combined_animation(x_vals: list[float], y_vals: list[float], function: Function1D):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    # --- Left Plot: Descent Path
+    x_range = np.linspace(-10, 10, 400)
+    ax1.plot(x_range, function.evaluate(x_range), color='blue', label='Function')
+    path_line, = ax1.plot([], [], 'ro-', label="Descent", markersize=5)
+    ax1.set_xlabel("x")
+    ax1.set_ylabel("f(x)")
+    ax1.set_title("Descent Path")
+    ax1.grid(True)
+
+    # --- Right Plot: Loss Curve
+    loss_line, = ax2.plot([], [], 'bo-', label="Loss")
+    ax2.set_xlim(0, len(y_vals)-1)
+    ax2.set_ylim(min(y_vals)-1, max(y_vals)+1)
+    ax2.set_xlabel("Step")
+    ax2.set_ylabel("f(x)")
+    ax2.set_title("Loss vs Steps")
+    ax2.grid(True)
+
+    def init():
+        path_line.set_data([], [])
+        loss_line.set_data([], [])
+        return path_line, loss_line
+
+    def update(frame):
+        path_line.set_data(x_vals[:frame+1], y_vals[:frame+1])
+        loss_line.set_data(list(range(frame+1)), y_vals[:frame+1])
+        return path_line, loss_line
+
+    ani = FuncAnimation(fig, update, frames=len(x_vals), init_func=init,
+                        interval=300, blit=True, repeat=False)
+
+    with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
+        ani.save(tmpfile.name, writer='pillow', fps=2, dpi=100)
+        tmpfile.seek(0)
+        gif_bytes = tmpfile.read()
+
+    st.image(gif_bytes, caption="📽️ Animated Gradient Descent & Loss Curve")
+
 # --- Streamlit Config ---
 st.set_page_config(page_title="Gradient Descent Visualizer", layout="centered")
 st.title("📉 Visualizing Gradient Descent in Action")
@@ -130,37 +175,45 @@ if mode == "1D":
 
     # --- 1D Display ---
     st.markdown(f"### 📊 Selected Function: {selected_function.formula_latex}")
+    animate_all = st.checkbox("🎞️ Animate Gradient Descent (Path + Loss)", key="animate_all")
 
     col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("#### 📉 Descent Path")
-        fig1, ax1 = plt.subplots()
-        x_range = np.linspace(-10, 10, 400)
-        ax1.plot(x_range, function.evaluate(x_range), label=selected_function.formula_latex, color='blue')
-        ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
 
-        # Stationary points
-        for pt in getattr(selected_function, "stationary_points", []):
-            ax1.axvline(x=pt, color='gray', linestyle='--', alpha=0.3)
+    if animate_all:
+        plot_combined_animation(x_vals, y_vals, function)
+    else:
+        with col1:
+            st.markdown("#### 📉 Descent Path")
+            # animate = st.checkbox("🎞️ Show Animated Descent", key="animate_1d")
 
-        ax1.set_xlabel("x")
-        ax1.set_ylabel("f(x)")
-        ax1.set_title(f"Gradient Descent on {selected_function.name}")
-        ax1.legend()
-        ax1.grid(True)
-        fig1.tight_layout()
-        st.pyplot(fig1)
+            fig1, ax1 = plt.subplots()
+            x_range = np.linspace(-10, 10, 400)
+            ax1.plot(x_range, function.evaluate(x_range), label=selected_function.formula_latex, color='blue')
+            ax1.plot(x_vals, y_vals, 'ro-', label="Descent Path", markersize=5)
 
-    with col2:
-        st.markdown("#### 📈 Loss vs Steps")
-        fig2, ax2 = plt.subplots()
-        ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
-        ax2.set_xlabel("Step")
-        ax2.set_ylabel("f(x)")
-        ax2.set_title("Loss vs Steps")
-        ax2.grid(True)
-        fig2.tight_layout()
-        st.pyplot(fig2)
+            # Stationary points
+            for pt in getattr(selected_function, "stationary_points", []):
+                ax1.axvline(x=pt, color='gray', linestyle='--', alpha=0.3)
+
+            ax1.set_xlabel("x")
+            ax1.set_ylabel("f(x)")
+            ax1.set_title(f"Gradient Descent on {selected_function.name}")
+            ax1.legend()
+            ax1.grid(True)
+            fig1.tight_layout()
+            st.pyplot(fig1)
+
+        with col2:
+            st.markdown("#### 📈 Loss vs Steps")
+            # animate_loss = st.checkbox("🎞️ Animate Loss Curve", key="animate_loss")
+            fig2, ax2 = plt.subplots()
+            ax2.plot(range(len(y_vals)), y_vals, 'bo-', label="Loss")
+            ax2.set_xlabel("Step")
+            ax2.set_ylabel("f(x)")
+            ax2.set_title("Loss vs Steps")
+            ax2.grid(True)
+            fig2.tight_layout()
+            st.pyplot(fig2)
 
     # --- Final Output ---
     st.subheader("📌 Final Results")
