@@ -14,7 +14,7 @@ import io
 import tempfile
 
 # --- Helper: Two-way sync input + slider ---
-def two_way_input(
+def slider_input(
     label: str,
     slider_range: tuple[float, float],
     step: float,
@@ -22,31 +22,20 @@ def two_way_input(
     key_prefix: str,
     default: float
 ) -> float:
+    """
+    A cleaner one-way slider input for streamlined UI.
+    """
     min_val, max_val = slider_range
-    state_key = f"{key_prefix}_val"
     slider_key = f"{key_prefix}_slider"
-    input_key = f"{key_prefix}_input"
 
-    if state_key not in st.session_state:
-        st.session_state[state_key] = default
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = default
 
-    input_val = st.sidebar.number_input(
-        f"Enter {label}", min_value=min_val, max_value=max_val,
-        value=st.session_state[state_key], step=step, format=format_str,
-        key=input_key
+    return st.sidebar.slider(
+        f"{label}", min_value=min_val, max_value=max_val,
+        value=st.session_state[slider_key], step=step,
+        format=format_str, key=slider_key
     )
-
-    slider_val = st.sidebar.slider(
-        f"Adjust {label}", min_value=min_val, max_value=max_val,
-        value=st.session_state[state_key], step=step, key=slider_key
-    )
-
-    if slider_val != st.session_state[state_key]:
-        st.session_state[state_key] = slider_val
-    elif input_val != st.session_state[state_key]:
-        st.session_state[state_key] = input_val
-
-    return st.session_state[state_key]
 
 def plot_3d_descent(func, path: list[tuple[float, float]]) -> plt.Figure:
     """
@@ -123,6 +112,48 @@ def plot_combined_animation(x_vals: list[float], y_vals: list[float], function: 
 
     st.image(gif_bytes, caption="📽️ Animated Gradient Descent & Loss Curve")
 
+# --- Animation Function for 2D Contour Descent ---
+def plot_animated_contour_2d(func, path):
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Grid
+    X = np.linspace(-5, 5, 100)
+    Y = np.linspace(-5, 5, 100)
+    X, Y = np.meshgrid(X, Y)
+    Z = func.evaluate(X, Y)
+
+    # Contour Lines
+    contour = ax.contour(X, Y, Z, levels=30, cmap="viridis")
+    ax.clabel(contour, inline=True, fontsize=8)
+
+    # Path Setup
+    x_vals, y_vals = zip(*path)
+    line, = ax.plot([], [], "ro-", label="Descent Path", lw=2)
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("2D Gradient Descent on Contour Plot")
+    ax.legend()
+    ax.grid(True)
+
+    def init():
+        line.set_data([], [])
+        return (line,)
+
+    def update(frame):
+        line.set_data(x_vals[:frame+1], y_vals[:frame+1])
+        return (line,)
+
+    ani = FuncAnimation(fig, update, frames=len(x_vals), init_func=init, interval=300, blit=True, repeat=False)
+
+    with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
+        ani.save(tmpfile.name, writer='pillow', fps=2, dpi=100)
+        tmpfile.seek(0)
+        gif_bytes = tmpfile.read()
+
+    st.image(gif_bytes, caption="📽️ 2D Gradient Descent on Contour Plot")
+
 # --- Streamlit Config ---
 st.set_page_config(page_title="Gradient Descent Visualizer", layout="centered")
 st.title("📉 Visualizing Gradient Descent in Action")
@@ -135,6 +166,14 @@ mode = st.radio("Select Visualization Mode:", ["1D", "2D"], horizontal=True)
 # -----------------------------
 if mode == "1D":
     st.subheader("📐 1D Gradient Descent")
+
+    # --- Optimizer Selector ---
+    optimizer_type = st.sidebar.selectbox(
+        "🧠 Choose Optimizer",
+        ["Gradient Descent", "Momentum", "RMSprop", "Adam"],
+        key="optimizer_type"
+    )
+
     # --- Function Selection ---
     function_names = list(FUNCTIONS.keys())
     selected_name = st.sidebar.selectbox("📐 Select 1D Function", function_names)
@@ -158,9 +197,33 @@ if mode == "1D":
     if not selected_function.has_minimum:
         st.sidebar.warning("⚠️ This function has no global minimum — gradient descent may diverge.")
 
-    learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "lr", DEFAULT_LR)
-    initial_x = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "x0", DEFAULT_X)
-    steps = int(two_way_input("Steps", (1, 100), 1, "%d", "steps", DEFAULT_STEPS))
+    learning_rate = slider_input("α", (0.001, 1.0), 0.001, "%.3f", "lr", DEFAULT_LR)
+    initial_x = slider_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "x0", DEFAULT_X)
+    steps = int(slider_input("Steps", (1, 100), 1, "%d", "steps", DEFAULT_STEPS))
+
+    # --- Optimizer Parameters (Dynamic Sidebar Sliders) ---
+    optimizer_params = {}
+    if optimizer_type == "Momentum":
+        optimizer_params["momentum"] = slider_input(
+            "Momentum (β)", (0.1, 0.99), 0.01, "%.2f", "momentum", 0.9
+        )
+    elif optimizer_type == "RMSprop":
+        optimizer_params["decay_rate"] = slider_input(
+            "Decay Rate (ρ)", (0.1, 0.99), 0.01, "%.2f", "decay_rate", 0.9
+        )
+        optimizer_params["epsilon"] = slider_input(
+            "Epsilon (ε)", (1e-8, 1e-2), 1e-6, "%.0e", "rms_epsilon", 1e-5
+        )
+    elif optimizer_type == "Adam":
+        optimizer_params["beta1"] = slider_input(
+            "β₁ (Momentum)", (0.1, 0.999), 0.01, "%.3f", "beta1", 0.9
+        )
+        optimizer_params["beta2"] = slider_input(
+            "β₂ (RMS)", (0.1, 0.999), 0.001, "%.3f", "beta2", 0.999
+        )
+        optimizer_params["epsilon"] = slider_input(
+            "Epsilon (ε)", (1e-8, 1e-2), 1e-6, "%.0e", "adam_epsilon", 1e-5
+        )
 
     # --- Function Class ---
     function = Function1D(
@@ -169,7 +232,14 @@ if mode == "1D":
     )
 
     # --- Run Gradient Descent ---
-    optimizer = GradientDescent(func=function, start_x=initial_x, lr=learning_rate, steps=steps)
+    optimizer = GradientDescent(
+        func=function,
+        start_x=initial_x,
+        lr=learning_rate,
+        steps=steps,
+        optimizer_type=optimizer_type,
+        optimizer_params=optimizer_params
+    )
     x_vals = optimizer.run()
     y_vals = [function.evaluate(x) for x in x_vals]
 
@@ -246,8 +316,15 @@ if mode == "1D":
 else:
     st.subheader("🌄 2D Gradient Descent Visualization")
 
+    # --- Optimizer Selector ---
+    optimizer_type = st.sidebar.selectbox(
+        "🧠 Choose Optimizer",
+        ["Gradient Descent", "Momentum", "RMSprop", "Adam"],
+        key="optimizer_type"
+    )
+
     function_names_2d = list(FUNCTIONS_2D.keys())
-    selected_name = st.selectbox("📐 Select 2D Function", function_names_2d)
+    selected_name = st.sidebar.selectbox("📐 Select 2D Function", function_names_2d)
     selected_function = FUNCTIONS_2D[selected_name]
 
     DEFAULT_LR = selected_function.recommended_lr
@@ -266,17 +343,51 @@ else:
     if not selected_function.has_minimum:
         st.sidebar.warning("⚠️ No global minimum — may diverge.")
 
-    learning_rate = two_way_input("α", (0.001, 1.0), 0.001, "%.3f", "2d_lr", DEFAULT_LR)
-    x0 = two_way_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "2d_x0", DEFAULT_X)
-    y0 = two_way_input("y₀", (-10.0, 10.0), 0.1, "%.1f", "2d_y0", DEFAULT_Y)
-    steps = int(two_way_input("Steps", (1, 100), 1, "%d", "2d_steps", DEFAULT_STEPS))
+    learning_rate = slider_input("α", (0.001, 1.0), 0.001, "%.3f", "2d_lr", DEFAULT_LR)
+    x0 = slider_input("x₀", (-10.0, 10.0), 0.1, "%.1f", "2d_x0", DEFAULT_X)
+    y0 = slider_input("y₀", (-10.0, 10.0), 0.1, "%.1f", "2d_y0", DEFAULT_Y)
+    steps = int(slider_input("Steps", (1, 100), 1, "%d", "2d_steps", DEFAULT_STEPS))
 
-    optimizer = GradientDescent2D(func=selected_function, start=(x0, y0), lr=learning_rate, steps=steps)
+    # --- Optimizer Parameters (Dynamic Sidebar Sliders) ---
+    optimizer_params = {}
+    if optimizer_type == "Momentum":
+        optimizer_params["momentum"] = slider_input(
+            "Momentum (β)", (0.1, 0.99), 0.01, "%.2f", "momentum", 0.9
+        )
+    elif optimizer_type == "RMSprop":
+        optimizer_params["decay_rate"] = slider_input(
+            "Decay Rate (ρ)", (0.1, 0.99), 0.01, "%.2f", "decay_rate", 0.9
+        )
+        optimizer_params["epsilon"] = slider_input(
+            "Epsilon (ε)", (1e-8, 1e-2), 1e-6, "%.0e", "rms_epsilon", 1e-5
+        )
+    elif optimizer_type == "Adam":
+        optimizer_params["beta1"] = slider_input(
+            "β₁ (Momentum)", (0.1, 0.999), 0.01, "%.3f", "beta1", 0.9
+        )
+        optimizer_params["beta2"] = slider_input(
+            "β₂ (RMS)", (0.1, 0.999), 0.001, "%.3f", "beta2", 0.999
+        )
+        optimizer_params["epsilon"] = slider_input(
+            "Epsilon (ε)", (1e-8, 1e-2), 1e-6, "%.0e", "adam_epsilon", 1e-5
+        )
+
+    optimizer = GradientDescent2D(
+        func=selected_function,
+        start=(x0, y0),
+        lr=learning_rate,
+        steps=steps,
+        optimizer_type=optimizer_type,
+        optimizer_params=optimizer_params
+    )
     path = optimizer.run()
 
-    st.markdown(f"**Function:** {selected_function.formula_latex}")
+    st.markdown(f"### 📊 Selected Function: {selected_function.formula_latex}")
     fig3d = plot_3d_descent(selected_function, path)
     st.pyplot(fig3d)
+
+    if st.checkbox("🎞️ Animate 2D Descent on Contour Plot"):
+        plot_animated_contour_2d(selected_function, path)
 
     st.subheader("📌 Final Results")
     if path:
