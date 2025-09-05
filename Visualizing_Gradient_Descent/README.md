@@ -91,7 +91,7 @@ An interactive **Streamlit app** that visually demonstrates the **working of Gra
 ## 🖥️ Installation
 
 ```bash
-git clone https://github.com/yourusername/gradient-descent-visualizer.git
-cd gradient-descent-visualizer
+git clone https://github.com/shivanshgupta2504/Maths-Projects.git
 pip install -r requirements.txt
+cd .\Visualizing_Gradient_Descent\
 streamlit run main.py
